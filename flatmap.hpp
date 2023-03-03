@@ -3,7 +3,6 @@
 // #include <cstddef>
 #include <bits/stdc++.h>
 
-
 struct power_of_two{
 	static constexpr size_t start_size = 2;
 	constexpr size_t next_size(size_t &x) const{
@@ -22,6 +21,35 @@ struct power_of_two{
 	}
 };
 
+template <typename K, typename V>
+struct Bucket
+{
+	K _key;
+	V _value;
+	int8_t distance = -1;
+	Bucket(const K &key, const V &value) : _key(key), _value(value) {}
+
+	bool has_value() const{
+		return distance > -1;
+	}
+
+	bool is_empty() const{
+		return distance < 0;
+	}
+};
+
+template<typename H>
+struct MyHasher : private H{
+
+};
+
+template<typename E>
+struct MyEqual : private E{
+
+};
+
+template<typename 
+
 struct Iterator{
 
 };
@@ -29,25 +57,12 @@ struct Iterator{
 template<typename K, typename V, typename H = std::hash<K>, typename E = std::equal_to<K>, typename A = std::allocator<std::pair<K, V>>, typename Hashpolicy = power_of_two>
 class MyHashMap : private H, private E, private Hp{
 
-	struct Bucket
-	{
-		K _key;
-		V _value;
-		int8_t distance = -1;
-		Bucket(const K &key, const V &value) : _key(key), _value(value) {}
-
-		bool has_value() const{
-			return distance > -1;
-		}
-
-		bool is_empty() const{
-			return distance < 0;
-		}
-
-	};
 
 	using B_Alloc = typename std::allocator_traits<A>::rebind_alloc<Bucket>;
 	using B_Pointer = B_Alloc::
+	using Entry = Bucket<K, V>;
+	using Hasher = MyHasher<H>;
+	using Equalizer = MyEqual<E>;
 
 public:
 	MyHashMap() {
@@ -55,6 +70,8 @@ public:
 	}
 
 private:
+
+
 
 private:
 	static int constexpr min_lookup = 4;
@@ -69,9 +86,16 @@ private:
 		return std::max(min_lookup, log2(num_buckets));
 	}
 
-	template<typename Key, typename... Arg>
-	void emplace(Key && k, Arg && a){
-			
+	template<typename Key = K, typename Value = V>
+	void emplace(Key && k, Value && v){
+		size_t index = hash_index(hash_key(k), num_slots_minus_one);
+		int8_t dist = 0;
+
+		Ent
+
+		for( )
+
+
 	}
 
 	void ReAlloc(size_t new_capacity) {
@@ -85,11 +109,16 @@ private:
 		std::swap(_Blk, Nw_Blk);
 		int8_t old_lookup = max_lookup;
 
-
 		for(size_t i = 0; i < num_slots_minus_one; ++i){
 			if(Nw_Blk[i].has_value()){
-				emplace(std::move(Nw_Blk[i]));
+				emplace(std::move(Nw_Blk[i]._key), std::move(Nw_Blk[i]._value));
 			}
 		}
+
+		for(size_)
+	}
+
+	size_t hash_key(K const & key) const{
+		return static_cast<H&>(*this) (key);
 	}
 };
