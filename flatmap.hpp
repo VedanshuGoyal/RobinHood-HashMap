@@ -21,32 +21,28 @@ struct power_of_two{
 	}
 };
 
-template <typename K, typename V>
+template <typename T>
 struct Bucket
 {
-	K _key;
-	V _value;
+	T value;
 	int8_t distance = -1;
 
 	Bucket() {}
 	Bucket(int8_t _distance) : distance(_distance) {}
-	// Bucket(const K &key, const V &value) : _key(key), _value(value) {}
+
+	template<typename ...Args>
+	void emplace(int8_t _distance, Args&&... args){
+		distance = _distance;
+		new(std::addressof(value)) T(std::forward<Args>(args));
+	}
+
+	void mswap(int8_t _distance, T const & _value){
+		std::swap(distance, _distance);
+		std::swap(value, _value);
+	}
 
 	bool has_value() const{
 		return distance > -1;
-	}
-
-	template<typename Key, typename Value>
-	void emplace(int8_t _distance, Key && k, Value && v){
-		distance = _distance;
-		new(std::addressof(_key)) K(std::forward<Key>(k));
-		new(std::addressof(_value)) V(std::forward<Value>(v));
-	}
-
-	void mswap(int8_t & _distance, K & k, V & v){
-		std::swap(distance, _distance);
-		std::swap(k, _key);
-		std::swap(v, _value);
 	}
 
 	bool is_empty() const{
@@ -54,27 +50,54 @@ struct Bucket
 	}
 };
 
-template<typename H>
-struct MyHasher : private H{
+template<typename K, typename Hasher>
+struct MyHasher : private Hasher{
+	size_t operator () (K const & key) const {
+		return static_cast<Hasher&> (*this) (key);
+	}
 
+	template <typename F, typename S>
+	size_t operator () (pair<F, S> const & value) const {
+		return static_cast<Hasher&> (*this) (value.first);
+	}
 };
 
-template<typename E>
-struct MyEqual : private E{
+template<typename K, typename KeyEqual>
+struct MyEqual : private KeyEqual{
+	bool operator () (K const & lhs, K const & rhs) const {
+		return static_cast<KeyEqual&> (*this) (lhs, rhs);
+	}
 
+	template <typename F, typename S>
+	bool operator () (K const & lhs, pair<F, S> const & rhs) const {
+		return static_cast<KeyEqual&> (*this) (lhs, rhs.first);
+	}
+
+	template <typename F, typename S>
+	bool operator () (pair<F, S> const & lhs, K const & rhs) const {
+		return static_cast<KeyEqual&> (*this) (lhs.first, rhs);
+	}
+
+	template <typename F, typename S>
+	bool operator () (pair<F, S> const & lhs, pair<F, S> const & rhs) const {
+		return static_cast<KeyEqual&> (*this) (lhs.first, rhs.first);
+	}
 };
-
 
 struct Iterator{
 
 };
 
 template<typename K, typename V, typename H = std::hash<K>, typename E = std::equal_to<K>, typename A = std::allocator<std::pair<K, V>>, typename Hashpolicy = power_of_two>
-class MyHashMap : private H, private E, private Hp{
-	using Allocator = typename std::allocator_traits<A>::rebind_alloc<Bucket>;
-	using AllocTraits = std::allocator_traits<Allocator>;
-	using Entry = typename Bucket<K, V>;
+class MyHashMap : private MyHasher<K, H>, private MyEqual<K, E>, private Hp{
+	using ValueType = std::pair<K, V>;
+	using Entry = typename Bucket<ValueType>;
 	using EntryPointer = AllocTraits::pointer;
+	using Hasher = MyHaser<K, H>;
+	using Equal_To = MyEqual<K, E>;
+
+	using Allocator = typename std::allocator_traits<A>::rebind_alloc<Entry>;
+	using AllocTraits = std::allocator_traits<Allocator>;
 	using cEntryPointer = AllocTraits::const_pointer;
 
 public:
@@ -97,48 +120,46 @@ private:
 		return std::max(min_lookup, log2(num_buckets));
 	}
 
-	template<typename Key, typename Value>
-	bool emplace(Key && k, Value && v){
+	template<typename Key, typename ...Args>
+	bool emplace(Key && k, Args... && args){
 		size_t index = hash_index(hash_key(k), num_slots_minus_one);
 		int8_t distance = 0;
 
 		EntryPointer it {_Blk};
 
 		for(; distance < it->distance; ++it, ++distance){
-			if(compares_equal(it->_key, k)){
+			if(compares_equal(k, it->value)){
 				return false;
 			}
 		}
 
 		if(distance == max_lookup || num_slots_minus_one*loadfactor < num_elements){
 			grow();
-			emplace(std::forward<Key>(k), std::forward<Value>(v));
+			emplace(std::forward<Key>(k), std::forward<Args>(args));
 		}
 
 		if(it->is_empty()){
-			it->emplace(distance, k, v);
+			it->emplace(distance, std::forward<Key>(k), std::forward<Args>(args));
 			++num_elements;
 			return true;
 		}
-
-		it->mswap(distance, k, v);
+		ValueType value = {std::forward<Key>(k), std::forward<Args>(args)};
+		it->mswap(distance, value);
 		auto _it = it;
 
 		for(++distance, ++it ; ; ++distance, ++it){
 			if(distance == max_lookup){
-				_it->mswap(distance, k, v);
+				_it->mswap(distance, value);
 				grow();
-				return emplace(std::move(k), std::move(v));
+				return emplace(std::move(value));
 			}else if(it->is_empty()){
-				it->emplace(distance, k, v);
+				it->emplace(distance, std::move(value));
 				++num_elements;
 				return 1;
 			}else if(it->distance < distance){
-				it->mswap(distance, k, v);
+				it->mswap(distance, value);
 			}
 		}
-
-		
 	}
 
 	void grow(){
@@ -162,16 +183,18 @@ private:
 		}
 		for(EntryPointer it{Nw_Blk}, end{it + static_cast<ptrdiff_t>(new_capacity + old_lookup)}; it != end; ++it){
 			if(it->has_value()){
-				emplace(std::move(it->_key), std::move(it->_value));
+				emplace(std::move(it->value));
 			}
 		}
 	}
 
-	size_t hash_key(K const & key) const{
-		return static_cast<H&>(*this) (key);
+	template<typename Key> 
+	size_t hash_key(Key const & key) const{
+		return static_cast<Hasher&>(*this) (key);
 	}
 
-	bool compares_equal(K const & a, K const & b) const {
-		return static_cast<E&>(*this) (a, b);
+	template<typename Key>
+	bool compares_equal(Key const & lhs, Key const & rhs) const {
+		return static_cast<Equal_To&>(*this) (lhs, rhs);
 	}
 };
