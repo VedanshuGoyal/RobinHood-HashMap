@@ -26,6 +26,7 @@ struct Bucket
 {
 	T value;
 	int8_t distance = -1;
+	static constexpr int8_t special_end_value = 0;
 
 	Bucket() {}
 	Bucket(int8_t _distance) : distance(_distance) {}
@@ -84,17 +85,59 @@ struct MyEqual : private KeyEqual{
 	}
 };
 
-struct Iterator{
+template<typename ValueType>
+class MapIterator{
+public:
+	using value_type = ValueType;
+	using pointer = ValueType*;
+	using reference = ValueType&;
 
+	MapIterator(PointerType ptr) : m_Ptr(ptr) {}
+
+	bool operator==(const templated_iterator & other) const{
+        return m_Ptr == rhs.m_Ptr;
+    }
+
+    bool operator!=(const templated_iterator & other) const{
+        return !(m_Ptr == rhs.m_Ptr);
+    }
+
+    MapIterator& operator++(){
+    	for( ++m_Ptr ; m_Ptr->is_empty() ; ) ++m_Ptr;
+        return *this;
+    }
+
+    MapIterator operator++(int){
+        templated_iterator copy(*this);
+        ++*this;
+        return copy;
+    }
+
+    ValueType & operator*() const{
+        return m_Ptr->value;
+    }
+
+    ValueType * operator->() const{
+        return std::addressof(m_Ptr->value);
+    }
+
+    operator MapIterator<const value_type>() const{
+        return { m_Ptr };
+    }
+private:
+	PointerType m_Ptr;
 };
 
 template<typename K, typename V, typename H = std::hash<K>, typename E = std::equal_to<K>, typename A = std::allocator<std::pair<K, V>>, typename Hashpolicy = power_of_two>
 class MyHashMap : private MyHasher<K, H>, private MyEqual<K, E>, private Hp{
-	using ValueType = std::pair<K, V>;
-	using Entry = typename Bucket<ValueType>;
+public:
+	using value_type = std::pair<K, V>;
+	using Entry = typename Bucket<value_type>;
 	using EntryPointer = AllocTraits::pointer;
 	using Hasher = MyHaser<K, H>;
 	using Equal_To = MyEqual<K, E>;
+	using iterator = MapIterator<value_type>;
+	using const_iterator = MapIterator<const value_type>;
 
 	using Allocator = typename std::allocator_traits<A>::rebind_alloc<Entry>;
 	using AllocTraits = std::allocator_traits<Allocator>;
@@ -109,7 +152,7 @@ private:
 	static int constexpr min_lookup = 4;
 
 	Allocator Alloc;
-	Bucket* _Blk;
+	Entry* _Blk;
 	size_t num_slots_minus_one = 0;
 	size_t num_elements = 0;
 	int8_t max_lookup = min_lookup;
@@ -168,24 +211,56 @@ private:
 
 	void ReAlloc(size_t new_capacity) {
 		// Not Work for decrease in size
-
 		if(new_capacity < num_slots_minus_one) return;
 
 		int8_t old_lookup = max_lookup;
 		max_lookup = compute_max_lookup(num_slots_minus_one);
 
-		Bucket* Nw_Blk = Alloc.allocate(new_capacity);
-		std::swap(num_slots_minus_one, new_capacity - 1);
+		Entry* Nw_Blk = Alloc.allocate(new_capacity + max_lookup);
+		--new_capacity;
+		std::swap(num_slots_minus_one, new_capacity);
 		std::swap(_Blk, Nw_Blk);
 
-		for(size_t i = 0; i < new_capacity; ++i){
-			Nw_Blk[i].distance = -1;
-		}
+		EntryPointer mend {_Blk +  static_cast<ptrdiff_t>(num_slots_minus_one + max_lookup)};
+		mend->distance = Entry::special_end_value;
+
+		for(EntryPointer it{_Blk}; it != end; ++it)
+			it->distance = -1;
+
 		for(EntryPointer it{Nw_Blk}, end{it + static_cast<ptrdiff_t>(new_capacity + old_lookup)}; it != end; ++it){
-			if(it->has_value()){
-				emplace(std::move(it->value));
-			}
+			if(it->has_value()) emplace(std::move(it->value));
 		}
+		
+		// deallocate Data...
+		Allocator.deallocate(Nw_Blk, new_capacity + old_lookup + 1);
+	}
+
+	iterator begin(){
+		EntryPointer it = _Blk;
+		for( ; it->is_empty(); ++it);
+		return {it};
+	}
+
+	iterator begin() const{
+		EntryPointer it = _Blk;
+		for( ; it->is_empty(); ++it);
+		return {it};
+	}
+
+	const_iterator cbegin() const{
+		return begin();
+	}
+
+	iterator end(){
+		return {_Blk + static_cast<ptrdiff_t>(num_slots_minus_one + max_lookup)};
+	}
+
+	iterator end() const{
+		return {_Blk + static_cast<ptrdiff_t>(num_slots_minus_one + max_lookup)};
+	}
+
+	const_iterator cend() const{
+		return end();
 	}
 
 	template<typename Key> 
@@ -197,4 +272,14 @@ private:
 	bool compares_equal(Key const & lhs, Key const & rhs) const {
 		return static_cast<Equal_To&>(*this) (lhs, rhs);
 	}
+
+	iterator find() const {
+
+
+	}
+
+
+
+
+
 };
