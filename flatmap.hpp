@@ -49,6 +49,15 @@ struct Bucket
 	bool is_empty() const{
 		return distance < 0;
 	}
+
+	bool is_at_desired_position() const{
+        return distance_from_desired <= 0;
+    }
+
+	void destroy() {
+		value.~T();
+		distance = -1;
+	}
 };
 
 template<typename K, typename Hasher>
@@ -85,14 +94,16 @@ struct MyEqual : private KeyEqual{
 	}
 };
 
-template<typename ValueType>
+template<typename ValueType, typename EntryPointer>
 class MapIterator{
 public:
 	using value_type = ValueType;
 	using pointer = ValueType*;
 	using reference = ValueType&;
 
-	MapIterator(PointerType ptr) : m_Ptr(ptr) {}
+	EntryPointer m_Ptr = EntryPointer();
+	MapIterator() = default;
+	MapIterator(EntryPointer ptr) : m_Ptr(ptr) {}
 
 	bool operator==(const templated_iterator & other) const{
         return m_Ptr == rhs.m_Ptr;
@@ -124,24 +135,25 @@ public:
     operator MapIterator<const value_type>() const{
         return { m_Ptr };
     }
-private:
-	PointerType m_Ptr;
+
 };
 
 template<typename K, typename V, typename H = std::hash<K>, typename E = std::equal_to<K>, typename A = std::allocator<std::pair<K, V>>, typename Hashpolicy = power_of_two>
 class MyHashMap : private MyHasher<K, H>, private MyEqual<K, E>, private Hp{
 public:
-	using value_type = std::pair<K, V>;
-	using Entry = typename Bucket<value_type>;
-	using EntryPointer = AllocTraits::pointer;
-	using Hasher = MyHaser<K, H>;
-	using Equal_To = MyEqual<K, E>;
-	using iterator = MapIterator<value_type>;
-	using const_iterator = MapIterator<const value_type>;
 
+	using Entry = typename Bucket<value_type>;
 	using Allocator = typename std::allocator_traits<A>::rebind_alloc<Entry>;
 	using AllocTraits = std::allocator_traits<Allocator>;
 	using cEntryPointer = AllocTraits::const_pointer;
+
+	using value_type = std::pair<K, V>;
+	using EntryPointer = AllocTraits::pointer;
+	using Hasher = MyHaser<K, H>;
+	using Equal_To = MyEqual<K, E>;
+	using iterator = MapIterator<value_type, EntryPointer>;
+	using const_iterator = MapIterator<const value_type>;
+
 
 public:
 	MyHashMap() {
@@ -152,7 +164,7 @@ private:
 	static int constexpr min_lookup = 4;
 
 	Allocator Alloc;
-	Entry* _Blk;
+	EntryPointer _Blk;
 	size_t num_slots_minus_one = 0;
 	size_t num_elements = 0;
 	int8_t max_lookup = min_lookup;
@@ -168,7 +180,7 @@ private:
 		size_t index = hash_index(hash_key(k), num_slots_minus_one);
 		int8_t distance = 0;
 
-		EntryPointer it {_Blk};
+		EntryPointer it {_Blk + static_cast<ptrdiff_t>(index)};
 
 		for(; distance < it->distance; ++it, ++distance){
 			if(compares_equal(k, it->value)){
@@ -268,18 +280,61 @@ private:
 		return static_cast<Hasher&>(*this) (key);
 	}
 
-	template<typename Key>
-	bool compares_equal(Key const & lhs, Key const & rhs) const {
+	template<typename L, typename R>
+	bool compares_equal(L const & lhs, R const & rhs) const {
 		return static_cast<Equal_To&>(*this) (lhs, rhs);
 	}
 
-	iterator find() const {
+	iterator find(K const & key) {
+		int8_t distance = 0;
+		for(EntryPointer it = {_Blk + static_cast<ptrdiff_t>(hash_index(hash_key(key), num_slots_minus_one))};
+			it->distance >= distance ; ++it, ++distance ){
+			if(compares_equal(key, it->value)){
+				return it;
+			}
+		}
 
-
+		return end();
 	}
 
+	iterator count(K const &key) {
+		return find() == end() ? 0 : 1;
+	}
 
+	bool insert(value_type const & value){
+		return emplace(value);
+	}
 
+	bool insert(value_type && key){
+		return emplace(std::move(key));
+	}
 
+	template<typename It>
+	void insert(It begin, It end){
+		for( ; begin != end ; ++begin) emplace(*begin);
+	}
+
+	void insert(std::initializer_list<value_type> il){
+		insert(il.begin(), il.end());
+	}
+
+	size_t erase(const_iterator it1) {
+		EntryPointer it = it1->m_Ptr;
+		it->destroy();
+		--num_elements;
+
+		for( auto next = it + ptrdiff_t(1); !it->is_at_desired_position() ; ++it, ++next){
+			it->emplace(it->distance - 1, std::move(next->value));
+			next->destroy_value();
+		}
+
+		return 1;
+	}
+
+	size_t erase(const K& key){
+		auto it = find(key);
+		if(it == end()) return 0;
+		return erase(it);
+	}
 
 };
