@@ -5,6 +5,7 @@
 
 struct power_of_two{
 	static constexpr size_t start_size = 4;
+
 	constexpr size_t next_size(size_t &x) const{
 		--x;
 		x |= x>>1;
@@ -34,7 +35,7 @@ struct Bucket
 	template<typename ...Args>
 	void emplace(int8_t _distance, Args&&... args){
 		distance = _distance;
-		new(std::addressof(value)) T(std::forward<Args>(args));
+		new(std::addressof(value)) T(std::forward<Args>(args)...);
 	}
 
 	void mswap(int8_t _distance, T const & _value){
@@ -51,7 +52,7 @@ struct Bucket
 	}
 
 	bool is_at_desired_position() const{
-        return distance_from_desired <= 0;
+        return distance <= 0;
     }
 
 	void destroy() {
@@ -67,7 +68,7 @@ struct MyHasher : private Hasher{
 	}
 
 	template <typename F, typename S>
-	size_t operator () (pair<F, S> const & value) const {
+	size_t operator () (std::pair<F, S> const & value) const {
 		return static_cast<Hasher&> (*this) (value.first);
 	}
 };
@@ -79,17 +80,17 @@ struct MyEqual : private KeyEqual{
 	}
 
 	template <typename F, typename S>
-	bool operator () (K const & lhs, pair<F, S> const & rhs) const {
+	bool operator () (K const & lhs, std::pair<F, S> const & rhs) const {
 		return static_cast<KeyEqual&> (*this) (lhs, rhs.first);
 	}
 
 	template <typename F, typename S>
-	bool operator () (pair<F, S> const & lhs, K const & rhs) const {
+	bool operator () (std::pair<F, S> const & lhs, K const & rhs) const {
 		return static_cast<KeyEqual&> (*this) (lhs.first, rhs);
 	}
 
 	template <typename F, typename S>
-	bool operator () (pair<F, S> const & lhs, pair<F, S> const & rhs) const {
+	bool operator () (std::pair<F, S> const & lhs, std::pair<F, S> const & rhs) const {
 		return static_cast<KeyEqual&> (*this) (lhs.first, rhs.first);
 	}
 };
@@ -105,12 +106,12 @@ public:
 	MapIterator() = default;
 	MapIterator(EntryPointer ptr) : m_Ptr(ptr) {}
 
-	bool operator==(const templated_iterator & other) const{
-        return m_Ptr == rhs.m_Ptr;
+	bool operator==(const MapIterator & other) const{
+        return m_Ptr == other.m_Ptr;
     }
 
-    bool operator!=(const templated_iterator & other) const{
-        return !(m_Ptr == rhs.m_Ptr);
+    bool operator!=(const MapIterator & other) const{
+        return !(m_Ptr == other.m_Ptr);
     }
 
     MapIterator& operator++(){
@@ -119,7 +120,7 @@ public:
     }
 
     MapIterator operator++(int){
-        templated_iterator copy(*this);
+        MapIterator copy(*this);
         ++*this;
         return copy;
     }
@@ -132,35 +133,34 @@ public:
         return std::addressof(m_Ptr->value);
     }
 
-    operator MapIterator<const value_type>() const{
+    operator MapIterator<const value_type, EntryPointer>() const{
         return { m_Ptr };
     }
 
 };
 
 template<typename K, typename V, typename H = std::hash<K>, typename E = std::equal_to<K>, typename A = std::allocator<std::pair<K, V>>, typename Hashpolicy = power_of_two>
-class MyHashMap : private MyHasher<K, H>, private MyEqual<K, E>, private Hp{
+class MyHashMap : private MyHasher<K, H>, private MyEqual<K, E>, private Hashpolicy{
 public:
 
-	using Entry = typename Bucket<value_type>;
+	using value_type = typename std::pair<K, V>;
+	using Entry = Bucket<value_type>;
 	using Allocator = typename std::allocator_traits<A>::rebind_alloc<Entry>;
 	using AllocTraits = std::allocator_traits<Allocator>;
 	using cEntryPointer = AllocTraits::const_pointer;
-
-	using value_type = std::pair<K, V>;
 	using EntryPointer = AllocTraits::pointer;
-	using Hasher = MyHaser<K, H>;
+	using Hasher = MyHasher<K, H>;
 	using Equal_To = MyEqual<K, E>;
 	using iterator = MapIterator<value_type, EntryPointer>;
-	using const_iterator = MapIterator<const value_type>;
-
+	using const_iterator = MapIterator<const value_type, EntryPointer>;
 
 public:
 	MyHashMap() {
-		ReAlloc(Hp::start_size);
+		ReAlloc(start_size);
 	}
 
 private:
+	static constexpr size_t start_size = Hashpolicy::start_size;
 	static int constexpr min_lookup = 4;
 
 	Allocator Alloc;
@@ -176,7 +176,7 @@ private:
 	}
 
 	template<typename Key, typename ...Args>
-	bool emplace(Key && k, Args... && args){
+	std::pair<iterator, bool> emplace(Key && k, Args&&... args){
 		size_t index = hash_index(hash_key(k), num_slots_minus_one);
 		int8_t distance = 0;
 
@@ -184,21 +184,21 @@ private:
 
 		for(; distance < it->distance; ++it, ++distance){
 			if(compares_equal(k, it->value)){
-				return false;
+				return { {it} , false};
 			}
 		}
 
 		if(distance == max_lookup || num_slots_minus_one*loadfactor < num_elements){
 			grow();
-			emplace(std::forward<Key>(k), std::forward<Args>(args));
+			return emplace(std::forward<Key>(k), std::forward<Args>(args)...);
 		}
 
 		if(it->is_empty()){
-			it->emplace(distance, std::forward<Key>(k), std::forward<Args>(args));
+			it->emplace(distance, std::forward<Key>(k), std::forward<Args>(args)...);
 			++num_elements;
-			return true;
+			return { {it} , true};
 		}
-		ValueType value = {std::forward<Key>(k), std::forward<Args>(args)};
+		value_type value = {std::forward<Key>(k), std::forward<Args>(args)...};
 		it->mswap(distance, value);
 		auto _it = it;
 
@@ -210,7 +210,7 @@ private:
 			}else if(it->is_empty()){
 				it->emplace(distance, std::move(value));
 				++num_elements;
-				return 1;
+				return {{it}, true};
 			}else if(it->distance < distance){
 				it->mswap(distance, value);
 			}
@@ -218,7 +218,7 @@ private:
 	}
 
 	void grow(){
-		ReAlloc(next_size(num_slots_minus_one));
+		ReAlloc(static_cast<Hashpolicy&>(*this).next_size(num_slots_minus_one));
 	}
 
 	void ReAlloc(size_t new_capacity) {
@@ -244,7 +244,7 @@ private:
 		}
 		
 		// deallocate Data...
-		Allocator.deallocate(Nw_Blk, new_capacity + old_lookup + 1);
+		Alloc.deallocate(Nw_Blk, new_capacity + old_lookup + 1);
 	}
 
 	iterator begin(){
@@ -335,6 +335,20 @@ private:
 		auto it = find(key);
 		if(it == end()) return 0;
 		return erase(it);
+	}
+
+	V & operator [] (const K & key) {
+		return emplace(key, V()).first->second;
+	}
+
+	V & operator [] (K && key) {
+		return emplace(std::move(key), V()).first->second;
+	}
+
+	V & at (const K & key){
+		auto it = find(key);
+		assert(it != end());
+		return it->second;
 	}
 
 };
