@@ -6,7 +6,7 @@
 struct power_of_two{
 	static constexpr size_t start_size = 4;
 
-	constexpr size_t next_size(size_t &x) const{
+	constexpr size_t next_size(size_t x) const{
 		--x;
 		x |= x>>1;
 		x |= x>>2;
@@ -38,7 +38,7 @@ struct Bucket
 		new(std::addressof(value)) T(std::forward<Args>(args)...);
 	}
 
-	void mswap(int8_t _distance, T const & _value){
+	void mswap(int8_t _distance, T& _value){
 		std::swap(distance, _distance);
 		std::swap(value, _value);
 	}
@@ -64,34 +64,34 @@ struct Bucket
 template<typename K, typename Hasher>
 struct MyHasher : private Hasher{
 	size_t operator () (K const & key) const {
-		return static_cast<Hasher&> (*this) (key);
+		return static_cast<const Hasher&> (*this) (key);
 	}
 
 	template <typename F, typename S>
 	size_t operator () (std::pair<F, S> const & value) const {
-		return static_cast<Hasher&> (*this) (value.first);
+		return static_cast<const Hasher&> (*this) (value.first);
 	}
 };
 
 template<typename K, typename KeyEqual>
 struct MyEqual : private KeyEqual{
 	bool operator () (K const & lhs, K const & rhs) const {
-		return static_cast<KeyEqual&> (*this) (lhs, rhs);
+		return static_cast<const KeyEqual&> (*this) (lhs, rhs);
 	}
 
 	template <typename F, typename S>
 	bool operator () (K const & lhs, std::pair<F, S> const & rhs) const {
-		return static_cast<KeyEqual&> (*this) (lhs, rhs.first);
+		return static_cast<const KeyEqual&> (*this) (lhs, rhs.first);
 	}
 
 	template <typename F, typename S>
 	bool operator () (std::pair<F, S> const & lhs, K const & rhs) const {
-		return static_cast<KeyEqual&> (*this) (lhs.first, rhs);
+		return static_cast<const KeyEqual&> (*this) (lhs.first, rhs);
 	}
 
 	template <typename F, typename S>
 	bool operator () (std::pair<F, S> const & lhs, std::pair<F, S> const & rhs) const {
-		return static_cast<KeyEqual&> (*this) (lhs.first, rhs.first);
+		return static_cast<const KeyEqual&> (*this) (lhs.first, rhs.first);
 	}
 };
 
@@ -154,30 +154,41 @@ public:
 	using iterator = MapIterator<value_type, EntryPointer>;
 	using const_iterator = MapIterator<const value_type, EntryPointer>;
 
-public:
-	MyHashMap() {
-		ReAlloc(start_size);
-	}
-
 private:
 	static constexpr size_t start_size = Hashpolicy::start_size;
-	static int constexpr min_lookup = 4;
+	static int8_t constexpr min_lookup = 4;
+	static inline Entry DefTab[min_lookup] = { {}, {}, {}, {Entry::special_end_value} };
 
 	Allocator Alloc;
-	EntryPointer _Blk;
+	EntryPointer _Blk = DefTab;
 	size_t num_slots_minus_one = 0;
 	size_t num_elements = 0;
-	int8_t max_lookup = min_lookup;
+	int8_t max_lookup = min_lookup - 1;
 	float loadfactor = 0.5f;
 
-	constexpr size_t log2(size_t x) {return x == 0 ? 0 : 61-__builtin_clzll(x);} // floor(log2(x))
+	static constexpr int8_t log2(size_t x) {return x == 0 ? 0 : 61-__builtin_clzll(x);} // floor(log2(x))
 	static constexpr int8_t compute_max_lookup(size_t num_buckets){
 		return std::max(min_lookup, log2(num_buckets));
 	}
 
+	template<typename Key> 
+	size_t hash_key(Key const & key) const{
+		return static_cast<const Hasher&>(*this) (key);
+	}
+
+
+	template<typename L, typename R>
+	bool compares_equal(L const & lhs, R const & rhs) const {
+		return static_cast<const Equal_To&>(*this) (lhs, rhs);
+	}
+
+
+public:
+	MyHashMap() {}
+
 	template<typename Key, typename ...Args>
 	std::pair<iterator, bool> emplace(Key && k, Args&&... args){
-		size_t index = hash_index(hash_key(k), num_slots_minus_one);
+		size_t index = static_cast<Hashpolicy&>(*this).hash_index(hash_key(k), num_slots_minus_one);
 		int8_t distance = 0;
 
 		EntryPointer it {_Blk + static_cast<ptrdiff_t>(index)};
@@ -188,8 +199,11 @@ private:
 			}
 		}
 
-		if(distance == max_lookup || num_slots_minus_one*loadfactor < num_elements){
+
+		if(num_slots_minus_one == 0 || distance == max_lookup || num_slots_minus_one*loadfactor < num_elements){
+			// dbg("SEX")
 			grow();
+			// return { {}, false};
 			return emplace(std::forward<Key>(k), std::forward<Args>(args)...);
 		}
 
@@ -222,13 +236,14 @@ private:
 	}
 
 	void ReAlloc(size_t new_capacity) {
+		// dbg("AAYA KYA") return;
 		// Not Work for decrease in size
 		if(new_capacity < num_slots_minus_one) return;
 
 		int8_t old_lookup = max_lookup;
 		max_lookup = compute_max_lookup(num_slots_minus_one);
 
-		Entry* Nw_Blk = Alloc.allocate(new_capacity + max_lookup);
+		EntryPointer Nw_Blk = Alloc.allocate(new_capacity + max_lookup);
 		--new_capacity;
 		std::swap(num_slots_minus_one, new_capacity);
 		std::swap(_Blk, Nw_Blk);
@@ -236,7 +251,7 @@ private:
 		EntryPointer mend {_Blk +  static_cast<ptrdiff_t>(num_slots_minus_one + max_lookup)};
 		mend->distance = Entry::special_end_value;
 
-		for(EntryPointer it{_Blk}; it != end; ++it)
+		for(EntryPointer it{_Blk}; it != mend; ++it)
 			it->distance = -1;
 
 		for(EntryPointer it{Nw_Blk}, end{it + static_cast<ptrdiff_t>(new_capacity + old_lookup)}; it != end; ++it){
@@ -244,7 +259,11 @@ private:
 		}
 		
 		// deallocate Data...
-		Alloc.deallocate(Nw_Blk, new_capacity + old_lookup + 1);
+		deallocate(Nw_Blk, new_capacity + old_lookup + 1);
+	}
+
+	inline void deallocate(EntryPointer it, size_t sz){
+		if(it != DefTab) Alloc.deallocate(it, sz);
 	}
 
 	iterator begin(){
@@ -273,16 +292,6 @@ private:
 
 	const_iterator cend() const{
 		return end();
-	}
-
-	template<typename Key> 
-	size_t hash_key(Key const & key) const{
-		return static_cast<Hasher&>(*this) (key);
-	}
-
-	template<typename L, typename R>
-	bool compares_equal(L const & lhs, R const & rhs) const {
-		return static_cast<Equal_To&>(*this) (lhs, rhs);
 	}
 
 	iterator find(K const & key) {
@@ -349,6 +358,11 @@ private:
 		auto it = find(key);
 		assert(it != end());
 		return it->second;
+	}
+
+	~MyHashMap(){
+		dbg("ACHA IDHAR")
+		deallocate(_Blk, num_slots_minus_one + max_lookup + 1);
 	}
 
 };
