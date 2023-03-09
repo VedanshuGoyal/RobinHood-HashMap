@@ -4,17 +4,16 @@
 #include <bits/stdc++.h>
 
 struct power_of_two{
-	static constexpr size_t start_size = 4;
+	static constexpr size_t min_size = 4;
 
 	constexpr size_t next_size(size_t x) const{
-		--x;
 		x |= x>>1;
 		x |= x>>2;
 		x |= x>>4;
 		x |= x>>8;
 		x |= x>>16;
 		x |= x>>32;
-		return (x + 1);
+		return ++x;
 	}
 
 	constexpr size_t hash_index(size_t hash, size_t slots_minus_one) const {
@@ -155,7 +154,7 @@ public:
 	using const_iterator = MapIterator<const value_type, EntryPointer>;
 
 private:
-	static constexpr size_t start_size = Hashpolicy::start_size;
+	static constexpr size_t min_size = Hashpolicy::min_size;
 	static int8_t constexpr min_lookup = 4;
 	static inline Entry DefTab[min_lookup] = { {}, {}, {}, {Entry::special_end_value} };
 
@@ -185,7 +184,6 @@ private:
 
 public:
 	MyHashMap() {}
-
 	template<typename Key, typename ...Args>
 	std::pair<iterator, bool> emplace(Key && k, Args&&... args){
 		size_t index = static_cast<Hashpolicy&>(*this).hash_index(hash_key(k), num_slots_minus_one);
@@ -193,7 +191,8 @@ public:
 
 		EntryPointer it {_Blk + static_cast<ptrdiff_t>(index)};
 
-		for(; distance < it->distance; ++it, ++distance){
+
+		for(; distance <= it->distance; ++it, ++distance){
 			if(compares_equal(k, it->value)){
 				return { {it} , false};
 			}
@@ -201,9 +200,7 @@ public:
 
 
 		if(num_slots_minus_one == 0 || distance == max_lookup || num_slots_minus_one*loadfactor < num_elements){
-			// dbg("SEX")
 			grow();
-			// return { {}, false};
 			return emplace(std::forward<Key>(k), std::forward<Args>(args)...);
 		}
 
@@ -232,16 +229,16 @@ public:
 	}
 
 	void grow(){
-		ReAlloc(static_cast<Hashpolicy&>(*this).next_size(num_slots_minus_one));
+		ReAlloc(std::max(min_size, static_cast<Hashpolicy&>(*this).next_size(num_slots_minus_one + 1)));
 	}
 
 	void ReAlloc(size_t new_capacity) {
-		// dbg("AAYA KYA") return;
 		// Not Work for decrease in size
 		if(new_capacity < num_slots_minus_one) return;
 
 		int8_t old_lookup = max_lookup;
-		max_lookup = compute_max_lookup(num_slots_minus_one);
+		max_lookup = compute_max_lookup(new_capacity);
+
 
 		EntryPointer Nw_Blk = Alloc.allocate(new_capacity + max_lookup);
 		--new_capacity;
@@ -361,7 +358,6 @@ public:
 	}
 
 	~MyHashMap(){
-		dbg("ACHA IDHAR")
 		deallocate(_Blk, num_slots_minus_one + max_lookup + 1);
 	}
 
