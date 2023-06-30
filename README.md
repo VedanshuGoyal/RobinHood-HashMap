@@ -1,7 +1,5 @@
 # RobinHood-HashMap
 
-[![License](https://img.shields.io/github/license/VedanshuGoyal/RobinHood-HashMap)](https://github.com/VedanshuGoyal/RobinHood-HashMap/blob/main/LICENSE)
-[![Release](https://img.shields.io/github/v/release/VedanshuGoyal/RobinHood-HashMap)](https://github.com/VedanshuGoyal/RobinHood-HashMap/releases)
 [![Last Commit](https://img.shields.io/github/last-commit/VedanshuGoyal/RobinHood-HashMap)](https://github.com/VedanshuGoyal/RobinHood-HashMap/commits/main)
 
 ## Project Description
