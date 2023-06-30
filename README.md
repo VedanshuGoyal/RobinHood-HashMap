@@ -17,11 +17,13 @@ To use RobinHood-HashMap in your C++ project, follow these steps:
    $ cd RobinHood-HashMap
    
 2. Include the necessary header files in your project:
-#include "robinhood.hpp"
+   ```shell
+   #include "robinhood.hpp"
 
-3. Create an instance of the HashMap:
-rhmap::Hashmap<KeyType, ValueType> hashmap;
+4. Create an instance of the HashMap:
+   ```shell
+   rhmap::Hashmap<KeyType, ValueType> hashmap;
 
-4. To Perform HashMap operations, such as insertion, lookup, and deletion it is the same API as the C++ STL map library.
+5. To Perform HashMap operations, such as insertion, lookup, and deletion it is the same API as the C++ STL map library.
 
 Leverage the HashMap in your application, taking advantage of its improved performance over the standard unordered map.
